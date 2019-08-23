@@ -2,6 +2,13 @@ use actix_web::{client::Client, web, App, Error, HttpResponse, HttpServer, Respo
 use futures::{Future, Stream};
 use serde::{Deserialize, Serialize};
 
+/// 1. browser requests this service
+/// 2. this service handles /open/{card_id}
+/// 3. sends request to backend /cards/{card_id}/meta/
+/// 4. converts json meta tags to html meta tags
+/// 5. add meta tags to html before </head>
+/// 6. sends html to user
+
 #[derive(Debug, Deserialize)]
 struct CardPath {
     card_id: u32,

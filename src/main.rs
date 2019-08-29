@@ -1,4 +1,4 @@
-use actix_web::{client::Client, web, App, Error, HttpResponse, HttpServer, Responder};
+use actix_web::{client::Client, web, App, Error, HttpResponse, HttpServer};
 use futures::{Future, Stream};
 use serde::{Deserialize, Serialize};
 
@@ -24,17 +24,12 @@ enum Answer<T> {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Card {
-    id: u32,
-    #[serde(skip)]
-    author_id: u32,
-    title: String,
-    #[serde(skip)]
-    content: serde_json::Value,
-    created_at: String,
-    updated_at: String,
-    useful_for: u32,
-    #[serde(skip)]
-    meta: serde_json::Value,
+    pub title: String,
+    pub description: String,
+    pub id: i32,
+    pub created_at: String,
+    pub updated_at: String,
+    pub preview: Option<String>,
 }
 
 trait MetaTags {
@@ -55,20 +50,32 @@ where
 
 impl MetaTags for Card {
     fn to_meta(&self) -> String {
+        let frontend_base_url = "https://test.cards.atomix.team".to_string();
+
         let og_type = create_meta("og:type", "article");
         let og_title = create_meta("og:title", &self.title);
+        let og_url = create_meta("og:url", format!("{}/open/{}", frontend_base_url, self.id));
+        let og_image =
+            (self.preview.clone()).map_or("".to_string(), |url| create_meta("og_image", url));
         let og_published = create_meta("article:published_time", &self.created_at);
         let og_modified = create_meta("article:modified_time", &self.updated_at);
 
-        vec![og_type, og_title, og_published, og_modified]
-            .iter()
-            .fold(String::new(), |acc, meta| format!("{}\n{}", acc, meta))
+        vec![
+            og_type,
+            og_title,
+            og_url,
+            og_image,
+            og_published,
+            og_modified,
+        ]
+        .iter()
+        .fold(String::new(), |acc, meta| format!("{}\n{}", acc, meta))
     }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CardWrapper {
-    card: Card,
+    meta: Card,
 }
 
 fn card(
@@ -76,7 +83,10 @@ fn card(
     client: web::Data<Client>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
     client
-        .get(format!("http://localhost:9000/api/cards/{}/", path.card_id))
+        .get(format!(
+            "http://localhost:9000/api/cards/{}/meta/",
+            path.card_id
+        ))
         .send()
         .map_err(Error::from)
         .and_then(|resp| {
@@ -92,7 +102,7 @@ fn card(
                     println!("{:#?}", body);
 
                     match body {
-                        Ok(Answer::Ok { result, .. }) => Ok(Some(result.card)),
+                        Ok(Answer::Ok { result, .. }) => Ok(Some(result.meta)),
                         _ => Ok(None),
                     }
                 })

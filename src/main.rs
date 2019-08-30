@@ -1,11 +1,12 @@
 use actix_web::{client::Client, web, App, Error, HttpResponse, HttpServer};
 use futures::{Future, Stream};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// 1. browser requests this service
-/// 2. this service handles /open/{card_id}
-/// 3. sends request to backend /cards/{card_id}/meta/
-/// 4. converts json meta tags to html meta tags
+/// 2. this service handles {LISTEN_HOST}/open/{card_id}
+/// 3. sends request to {BACKEND_URL}/cards/{card_id}/meta/
+/// 4. converts meta to html meta tags
 /// 5. add meta tags to html before </head>
 /// 6. sends html to user
 
@@ -32,10 +33,6 @@ struct Card {
     pub preview: Option<String>,
 }
 
-trait MetaTags {
-    fn to_meta(&self) -> String;
-}
-
 fn create_meta<P, C>(prop: P, content: C) -> String
 where
     P: AsRef<str>,
@@ -48,17 +45,23 @@ where
     )
 }
 
-impl MetaTags for Card {
-    fn to_meta(&self) -> String {
-        let frontend_base_url = "https://test.cards.atomix.team".to_string();
+#[derive(Debug)]
+struct Config {
+    public_url: String,
+    backend_url: String,
+}
+
+impl Config {
+    fn meta_for_card(&self, card: &Card) -> String {
+        let public_url = self.public_url.to_string();
 
         let og_type = create_meta("og:type", "article");
-        let og_title = create_meta("og:title", &self.title);
-        let og_url = create_meta("og:url", format!("{}/open/{}", frontend_base_url, self.id));
+        let og_title = create_meta("og:title", &card.title);
+        let og_url = create_meta("og:url", format!("{}/open/{}", public_url, card.id));
         let og_image =
-            (self.preview.clone()).map_or("".to_string(), |url| create_meta("og_image", url));
-        let og_published = create_meta("article:published_time", &self.created_at);
-        let og_modified = create_meta("article:modified_time", &self.updated_at);
+            (card.preview.clone()).map_or("".to_string(), |url| create_meta("og_image", url));
+        let og_published = create_meta("article:published_time", &card.created_at);
+        let og_modified = create_meta("article:modified_time", &card.updated_at);
 
         vec![
             og_type,
@@ -71,6 +74,10 @@ impl MetaTags for Card {
         .iter()
         .fold(String::new(), |acc, meta| format!("{}\n{}", acc, meta))
     }
+
+    fn backend_card_url(&self, card_id: u32) -> String {
+        format!("{}/api/cards/{}/meta/", self.backend_url, card_id)
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -81,55 +88,62 @@ struct CardWrapper {
 fn card(
     path: web::Path<CardPath>,
     client: web::Data<Client>,
+    config: web::Data<Arc<Config>>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
+    let config = config;
     client
-        .get(format!(
-            "http://localhost:9000/api/cards/{}/meta/",
-            path.card_id
-        ))
+        .get(config.backend_card_url(path.card_id))
         .send()
         .map_err(Error::from)
         .and_then(|resp| {
-            println!("{:?}", resp);
             resp.from_err()
                 .fold(web::BytesMut::new(), |mut acc, chunk| {
                     acc.extend_from_slice(&chunk);
                     Ok::<_, Error>(acc)
                 })
-                .and_then(|body| {
-                    let body: Result<Answer<CardWrapper>, _> = serde_json::from_slice(&body);
+        })
+        .and_then(|body| {
+            let body: Result<Answer<CardWrapper>, _> = serde_json::from_slice(&body);
 
-                    println!("{:#?}", body);
-
-                    match body {
-                        Ok(Answer::Ok { result, .. }) => Ok(Some(result.meta)),
-                        _ => Ok(None),
-                    }
-                })
-                .map(|card| {
-                    if let Some(card) = card {
-                        card.to_meta()
-                    } else {
-                        "<div></div>".to_string()
-                    }
-                })
-                .map(|html| {
-                    HttpResponse::build(actix_web::http::StatusCode::OK)
-                        .content_type("text/html; charset=utf-8")
-                        .body(&html)
-                })
+            match body {
+                Ok(Answer::Ok { result, .. }) => Ok(Some(result.meta)),
+                _ => Ok(None),
+            }
+        })
+        .map(move |card| {
+            if let Some(card) = card {
+                config.meta_for_card(&card)
+            } else {
+                "<div></div>".to_string()
+            }
+        })
+        .map(|html| {
+            HttpResponse::build(actix_web::http::StatusCode::OK)
+                .content_type("text/html; charset=utf-8")
+                .body(&html)
         })
 }
 
 fn main() -> std::io::Result<()> {
+    dotenv::dotenv().ok();
     pretty_env_logger::init();
 
-    HttpServer::new(|| {
+    let listen_host = std::env::var("LISTEN_HOST").expect("please, provide LISTEN_HOST");
+
+    let public_url = std::env::var("PUBLIC_URL").expect("please, provide PUBLIC_URL");
+    let backend_url = std::env::var("BACKEND_URL").expect("please, provide BACKEND_URL");
+    let config = Arc::new(Config {
+        public_url,
+        backend_url,
+    });
+
+    HttpServer::new(move || {
         App::new()
             .data(Client::default())
+            .data(config.clone())
             .service(web::resource("/open/{card_id}").to_async(card))
             .service(web::resource("/open/{card_id}/").to_async(card))
     })
-    .bind("127.0.0.1:3000")?
+    .bind(listen_host)?
     .run()
 }

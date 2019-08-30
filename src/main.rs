@@ -48,28 +48,60 @@ where
 #[derive(Debug)]
 struct Config {
     public_url: String,
+    image_url: String,
     backend_url: String,
+    sitename: String,
 }
 
 impl Config {
     fn meta_for_card(&self, card: &Card) -> String {
         let public_url = self.public_url.to_string();
 
+        let title = create_meta("title", &card.title);
+        let description = create_meta("description", &card.description);
+
+        let og_sitename = create_meta("og:site_name", &self.sitename);
         let og_type = create_meta("og:type", "article");
         let og_title = create_meta("og:title", &card.title);
+        let og_description = create_meta("og:description", &card.description);
         let og_url = create_meta("og:url", format!("{}/open/{}", public_url, card.id));
-        let og_image =
-            (card.preview.clone()).map_or("".to_string(), |url| create_meta("og_image", url));
-        let og_published = create_meta("article:published_time", &card.created_at);
-        let og_modified = create_meta("article:modified_time", &card.updated_at);
+        let og_image = (card.preview.clone()).map_or("".to_string(), |url| {
+            create_meta("og_image", format!("{}/{}", self.image_url, url))
+        });
+        // let og_locale = create_meta("og:locale", "en_US");
+        // let og_article_author = create_meta("article:author", "Sergey Sova");
+        // let og_article_tag = create_meta("article:tag", "react");
+        // https://developer.twitter.com/en/docs/tweets/optimize-with-cards/overview/summary-card-with-large-image
+        let og_article_published = create_meta("article:published_time", &card.created_at);
+        let og_article_modified = create_meta("article:modified_time", &card.updated_at);
+
+        let twitter_card = create_meta(
+            "twitter:card",
+            (card.preview.clone()).map_or("summary", |_| "summary_large_image"),
+        );
+        let twitter_site = create_meta("twitter:site", "@howtocards_io");
+        let twitter_title = create_meta("twitter:title", &card.title);
+        let twitter_description = create_meta("twitter:description", &card.description);
+        let twitter_image = (card.preview.clone()).map_or("".to_string(), |url| {
+            create_meta("twitter:image", format!("{}/{}", self.image_url, url))
+        });
 
         vec![
+            title,
+            description,
+            og_sitename,
             og_type,
             og_title,
+            og_description,
             og_url,
             og_image,
-            og_published,
-            og_modified,
+            og_article_published,
+            og_article_modified,
+            twitter_card,
+            twitter_site,
+            twitter_title,
+            twitter_description,
+            twitter_image,
         ]
         .iter()
         .fold(String::new(), |acc, meta| format!("{}\n{}", acc, meta))
@@ -130,11 +162,11 @@ fn main() -> std::io::Result<()> {
 
     let listen_host = std::env::var("LISTEN_HOST").expect("please, provide LISTEN_HOST");
 
-    let public_url = std::env::var("PUBLIC_URL").expect("please, provide PUBLIC_URL");
-    let backend_url = std::env::var("BACKEND_URL").expect("please, provide BACKEND_URL");
     let config = Arc::new(Config {
-        public_url,
-        backend_url,
+        public_url: std::env::var("PUBLIC_URL").expect("please, provide PUBLIC_URL"),
+        image_url: std::env::var("IMAGE_URL").expect("please, provide IMAGE_URL"),
+        backend_url: std::env::var("BACKEND_URL").expect("please, provide BACKEND_URL"),
+        sitename: std::env::var("SITENAME").expect("please, provide SITENAME"),
     });
 
     HttpServer::new(move || {

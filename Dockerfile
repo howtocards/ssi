@@ -28,9 +28,10 @@ RUN seq 1 8 | xargs -I{} mkdir -p /usr/share/man/man{} && \
 COPY --from=build /app/target/release/howtocards_ssi ./
 RUN chmod +x howtocards_ssi
 
-ENV PUBLIC_URL
+ENV PUBLIC_URL https://test.cards.atomix.team
 ENV IMAGE_URL $PUBLIC_URL
-ENV BACKEND_URL
+ENV BACKEND_URL https://localhost:9000
 ENV LISTEN_HOST 127.0.0.1:4000
+ENV SITENAME Howtocards
 
 CMD ["/howtocards_ssi"]

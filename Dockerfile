@@ -1,5 +1,6 @@
 ARG RUST_VERSION=1.37.0
 
+# build
 FROM rust:$RUST_VERSION as build
 
 RUN USER=root cargo new --bin app
@@ -18,6 +19,7 @@ COPY ./ ./
 RUN rm ./target/release/deps/howtocards_ssi* && \
     cargo build --release
 
+# run
 FROM debian:9-slim
 
 RUN seq 1 8 | xargs -I{} mkdir -p /usr/share/man/man{} && \
@@ -25,5 +27,10 @@ RUN seq 1 8 | xargs -I{} mkdir -p /usr/share/man/man{} && \
 
 COPY --from=build /app/target/release/howtocards_ssi ./
 RUN chmod +x howtocards_ssi
+
+ENV PUBLIC_URL
+ENV IMAGE_URL $PUBLIC_URL
+ENV BACKEND_URL
+ENV LISTEN_HOST 127.0.0.1:4000
 
 CMD ["/howtocards_ssi"]

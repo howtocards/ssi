@@ -10,27 +10,48 @@ use std::sync::Arc;
 /// 5. add meta tags to html before </head>
 /// 6. sends html to user
 
-#[derive(Debug, Deserialize)]
-struct CardPath {
-    card_id: u32,
+fn main() -> std::io::Result<()> {
+    dotenv::dotenv().ok();
+    pretty_env_logger::init();
+
+    let listen_host = std::env::var("LISTEN_HOST").expect("please, provide LISTEN_HOST");
+
+    let config = Arc::new(Config {
+        public_url: std::env::var("PUBLIC_URL").expect("please, provide PUBLIC_URL"),
+        image_url: std::env::var("IMAGE_URL").expect("please, provide IMAGE_URL"),
+        backend_url: std::env::var("BACKEND_URL").expect("please, provide BACKEND_URL"),
+        sitename: std::env::var("SITENAME").expect("please, provide SITENAME"),
+        index_html_path: std::env::var("INDEX_HTML_PATH").expect("please, provide INDEX_HTML_PATH"),
+    });
+
+    let storage = Arc::new(
+        Storage::read_from(config.clone().index_html_path.clone())
+            .expect("cannot read INDEX_HTML_FILE"),
+    );
+
+    HttpServer::new(move || {
+        App::new()
+            .data(Client::default())
+            .data(config.clone())
+            .data(storage.clone())
+            .service(web::resource("/open/{card_id}").to_async(card))
+            .service(web::resource("/open/{card_id}/").to_async(card))
+    })
+    .bind(listen_host)?
+    .run()
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-enum Answer<T> {
-    Err { ok: bool, error: String },
-    Ok { ok: bool, result: T },
+#[derive(Debug)]
+struct Storage {
+    index_html: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Card {
-    pub title: String,
-    pub description: String,
-    pub id: i32,
-    pub created_at: String,
-    pub updated_at: String,
-    pub preview: Option<String>,
+impl Storage {
+    pub fn read_from(path: String) -> Result<Self, std::io::Error> {
+        let source = std::fs::read_to_string(path)?;
+
+        Ok(Storage { index_html: source })
+    }
 }
 
 fn create_meta<P, C>(prop: P, content: C) -> String
@@ -51,6 +72,7 @@ struct Config {
     image_url: String,
     backend_url: String,
     sitename: String,
+    index_html_path: String,
 }
 
 impl Config {
@@ -112,6 +134,29 @@ impl Config {
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct CardPath {
+    card_id: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum Answer<T> {
+    Err { ok: bool, error: String },
+    Ok { ok: bool, result: T },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Card {
+    pub title: String,
+    pub description: String,
+    pub id: i32,
+    pub created_at: String,
+    pub updated_at: String,
+    pub preview: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct CardWrapper {
     meta: Card,
@@ -121,8 +166,9 @@ fn card(
     path: web::Path<CardPath>,
     client: web::Data<Client>,
     config: web::Data<Arc<Config>>,
+    storage: web::Data<Arc<Storage>>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
-    let config = config;
+    let storage_copy = storage.clone();
     client
         .get(config.backend_card_url(path.card_id))
         .send()
@@ -149,33 +195,23 @@ fn card(
                 "<div></div>".to_string()
             }
         })
-        .map(|html| {
+        .map(move |html| {
+            let index_html = storage.index_html.clone();
+            let replace_to = format!("{}</head>", html);
+            let body = index_html.replace("</head>", &replace_to);
+
             HttpResponse::build(actix_web::http::StatusCode::OK)
                 .content_type("text/html; charset=utf-8")
-                .body(&html)
+                .body(&body)
         })
-}
+        .or_else(move |err| {
+            use log::error;
+            let index_html = storage_copy.clone().index_html.clone();
 
-fn main() -> std::io::Result<()> {
-    dotenv::dotenv().ok();
-    pretty_env_logger::init();
+            error!("Failed to get info about card: {:#?}", err);
 
-    let listen_host = std::env::var("LISTEN_HOST").expect("please, provide LISTEN_HOST");
-
-    let config = Arc::new(Config {
-        public_url: std::env::var("PUBLIC_URL").expect("please, provide PUBLIC_URL"),
-        image_url: std::env::var("IMAGE_URL").expect("please, provide IMAGE_URL"),
-        backend_url: std::env::var("BACKEND_URL").expect("please, provide BACKEND_URL"),
-        sitename: std::env::var("SITENAME").expect("please, provide SITENAME"),
-    });
-
-    HttpServer::new(move || {
-        App::new()
-            .data(Client::default())
-            .data(config.clone())
-            .service(web::resource("/open/{card_id}").to_async(card))
-            .service(web::resource("/open/{card_id}/").to_async(card))
-    })
-    .bind(listen_host)?
-    .run()
+            HttpResponse::build(actix_web::http::StatusCode::OK)
+                .content_type("text/html; charset=utf-8")
+                .body(index_html)
+        })
 }

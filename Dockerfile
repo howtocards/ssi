@@ -33,5 +33,6 @@ ENV IMAGE_URL $PUBLIC_URL
 ENV BACKEND_URL https://localhost:9000
 ENV LISTEN_HOST 127.0.0.1:4000
 ENV SITENAME Howtocards
+ENV INDEX_HTML_PATH /app/static/index.html
 
 CMD ["/howtocards_ssi"]

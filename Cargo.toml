@@ -1,6 +1,6 @@
 [package]
 name = "howtocards_ssi"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Sergey Sova <mail@sergeysova.com>"]
 edition = "2018"
 

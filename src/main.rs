@@ -62,7 +62,7 @@ where
     format!(
         r#"<meta property="{}" content="{}" />"#,
         prop.as_ref(),
-        content.as_ref()
+        htmlescape::encode_minimal(content.as_ref())
     )
 }
 

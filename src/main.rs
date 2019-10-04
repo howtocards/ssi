@@ -36,6 +36,8 @@ fn main() -> std::io::Result<()> {
             .data(storage.clone())
             .service(web::resource("/open/{card_id}").to_async(card))
             .service(web::resource("/open/{card_id}/").to_async(card))
+            .service(web::resource("/@{username}").to_async(user))
+            .service(web::resource("/@{username}/").to_async(user))
     })
     .bind(listen_host)?
     .run()
@@ -129,8 +131,53 @@ impl Config {
         .fold(String::new(), |acc, meta| format!("{}\n{}", acc, meta))
     }
 
+    fn meta_for_user(&self, user: &User) -> String {
+        let public_url = self.public_url.to_string();
+        let name = user.display_name.clone().unwrap_or(user.username.clone());
+
+        let title = format!("{} on Howtocards", name);
+        let description = format!("What {} created", name);
+        let url = format!("{}/@{}", public_url, user.username);
+
+        let m_title = create_meta("title", &title);
+        let m_description = create_meta("description", &description);
+        let m_canonical = create_meta("canonical", &url);
+
+        let og_sitename = create_meta("og:site_name", &self.sitename);
+        let og_type = create_meta("og:type", "article");
+        let og_title = create_meta("og:title", &title);
+        let og_description = create_meta("og:description", description.clone());
+        let og_url = create_meta("og:url", url);
+        let og_image = create_meta("og:image", &user.avatar);
+        let og_image_secure = create_meta("og:image:secure_url", &user.avatar);
+
+        let og_profile_first = create_meta("profile:first_name", &name);
+        let og_profile_username = create_meta("profile:username", &user.username);
+
+        vec![
+            m_title,
+            m_description,
+            m_canonical,
+            og_sitename,
+            og_type,
+            og_title,
+            og_description,
+            og_url,
+            og_image,
+            og_image_secure,
+            og_profile_first,
+            og_profile_username,
+        ]
+        .iter()
+        .fold(String::new(), |acc, meta| format!("{}\n{}", acc, meta))
+    }
+
     fn backend_card_url(&self, card_id: u32) -> String {
         format!("{}/api/cards/{}/meta/", self.backend_url, card_id)
+    }
+
+    fn backend_user_url(&self, username: String) -> String {
+        format!("{}/api/users/{}/", self.backend_url, username)
     }
 }
 
@@ -192,13 +239,91 @@ fn card(
             if let Some(card) = card {
                 config.meta_for_card(&card)
             } else {
-                "<div></div>".to_string()
+                "".to_string()
             }
         })
         .map(move |html| {
             let index_html = storage.index_html.clone();
             let replace_to = format!("{}</head>", html);
-            let body = index_html.replace("</head>", &replace_to);
+            let body = index_html
+                .replace("</head>", &replace_to)
+                .replace("<head>", r#"<head prefix="og: http://ogp.me/ns#">"#);
+
+            HttpResponse::build(actix_web::http::StatusCode::OK)
+                .content_type("text/html; charset=utf-8")
+                .body(&body)
+        })
+        .or_else(move |err| {
+            use log::error;
+            let index_html = storage_copy.clone().index_html.clone();
+
+            error!("Failed to get info about card: {:#?}", err);
+
+            HttpResponse::build(actix_web::http::StatusCode::OK)
+                .content_type("text/html; charset=utf-8")
+                .body(index_html)
+        })
+}
+
+#[derive(Debug, Deserialize)]
+struct UserPath {
+    username: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct User {
+    display_name: Option<String>,
+    id: u32,
+    avatar: String,
+    username: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct UserWrapper {
+    user: User,
+}
+
+fn user(
+    path: web::Path<UserPath>,
+    client: web::Data<Client>,
+    config: web::Data<Arc<Config>>,
+    storage: web::Data<Arc<Storage>>,
+) -> impl Future<Item = HttpResponse, Error = Error> {
+    let storage_copy = storage.clone();
+    client
+        .get(config.backend_user_url(path.username.clone()))
+        .send()
+        .map_err(Error::from)
+        .and_then(|resp| {
+            resp.from_err()
+                .fold(web::BytesMut::new(), |mut acc, chunk| {
+                    acc.extend_from_slice(&chunk);
+                    Ok::<_, Error>(acc)
+                })
+        })
+        .and_then(|body| {
+            let body: Result<Answer<UserWrapper>, _> = serde_json::from_slice(&body);
+
+            match body {
+                Ok(Answer::Ok { result, .. }) => Ok(Some(result.user)),
+                _ => Ok(None),
+            }
+        })
+        .map(move |user| {
+            if let Some(user) = user {
+                config.meta_for_user(&user)
+            } else {
+                "".to_string()
+            }
+        })
+        .map(move |html| {
+            let index_html = storage.index_html.clone();
+            let replace_to = format!("{}</head>", html);
+            let body = index_html.replace("</head>", &replace_to).replace(
+                "<head>",
+                r#"<head prefix="og: http://ogp.me/ns# profile: http://ogp.me/ns/profile#">"#,
+            );
 
             HttpResponse::build(actix_web::http::StatusCode::OK)
                 .content_type("text/html; charset=utf-8")

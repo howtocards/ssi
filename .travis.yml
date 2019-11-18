@@ -25,12 +25,12 @@ jobs:
         - docker pull $DOCKER_IMAGE:$TRAVIS_COMMIT
         - docker tag $DOCKER_IMAGE:$TRAVIS_COMMIT $DOCKER_IMAGE:latest
         - docker push $DOCKER_IMAGE:latest
-    - stage: push nightly
+    - stage: push dev
       if: branch = dev AND type != pull_request
       script:
         - docker pull $DOCKER_IMAGE:$TRAVIS_COMMIT
-        - docker tag $DOCKER_IMAGE:$TRAVIS_COMMIT $DOCKER_IMAGE:nightly
-        - docker push $DOCKER_IMAGE:nightly
+        - docker tag $DOCKER_IMAGE:$TRAVIS_COMMIT $DOCKER_IMAGE:dev
+        - docker push $DOCKER_IMAGE:dev
     - stage: push tag
       if: tag =~ /^v\d+\.\d+\.\d+/
       script:

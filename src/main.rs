@@ -87,7 +87,7 @@ impl Config {
         let og_title = create_meta("og:title", &card.title);
         let og_description = create_meta("og:description", &card.description);
         let og_url = create_meta("og:url", format!("{}/open/{}", public_url, card.id));
-        let og_image = (card.preview.clone()).map_or("".to_string(), |url| {
+        let og_image = (card.preview_url.clone()).map_or("".to_string(), |url| {
             create_meta("og_image", format!("{}/{}", self.image_url, url))
         });
         // let og_locale = create_meta("og:locale", "en_US");
@@ -99,12 +99,12 @@ impl Config {
 
         let twitter_card = create_meta(
             "twitter:card",
-            (card.preview.clone()).map_or("summary", |_| "summary_large_image"),
+            (card.preview_url.clone()).map_or("summary", |_| "summary_large_image"),
         );
         let twitter_site = create_meta("twitter:site", "@howtocards_io");
         let twitter_title = create_meta("twitter:title", &card.title);
         let twitter_description = create_meta("twitter:description", &card.description);
-        let twitter_image = (card.preview.clone()).map_or("".to_string(), |url| {
+        let twitter_image = (card.preview_url.clone()).map_or("".to_string(), |url| {
             create_meta("twitter:image", format!("{}/{}", self.image_url, url))
         });
 
@@ -154,7 +154,7 @@ struct Card {
     pub id: i32,
     pub created_at: String,
     pub updated_at: String,
-    pub preview: Option<String>,
+    pub preview_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

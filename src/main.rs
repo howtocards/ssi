@@ -105,7 +105,7 @@ impl Config {
         let twitter_title = create_meta("twitter:title", &card.title);
         let twitter_description = create_meta("twitter:description", &card.description);
         let twitter_image = (card.preview_url.clone()).map_or("".to_string(), |url| {
-            create_meta("twitter:image", format!("{}/{}", self.image_url, url))
+            create_meta("twitter:image", format!("{}{}", self.image_url, url))
         });
 
         vec![

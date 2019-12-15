@@ -9,8 +9,6 @@ WORKDIR /app
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
 
-RUN cargo test --release --verbose --all
-
 RUN cargo build --release --verbose && \
     rm src/*.rs
 
@@ -18,6 +16,8 @@ COPY ./ ./
 
 RUN rm ./target/release/deps/howtocards_ssi* && \
     cargo build --release
+
+RUN cargo test --release --verbose --all
 
 # run
 FROM debian:9-slim
